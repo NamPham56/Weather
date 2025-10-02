@@ -7,16 +7,15 @@ import {
   ActivityIndicator,
   StyleSheet,
   StatusBar,
-  TextInput,
-  useColorScheme,
   RefreshControl,
+  Modal,
 } from "react-native";
 import Geolocation from "@react-native-community/geolocation";
-import { RefreshCw, MapPin, Wind, Droplets } from "lucide-react-native";
+import { RefreshCw, Wind, Droplets, X } from "lucide-react-native";
 import LinearGradient from "react-native-linear-gradient";
 
 type LocationType = { latitude: number; longitude: number } | null;
-type HourlyItem = { time: string; temp: number; code: number; isDay: boolean };
+type HourlyItem = { time: string; temp: number; code: number; isDay: boolean; date: string };
 type DailyItem = { date: string; maxTemp: number; minTemp: number; code: number };
 
 const API_BASE = "https://api.open-meteo.com/v1/forecast";
@@ -37,15 +36,14 @@ const WMO_MAP: Record<number, { text: string; icon: string }> = {
 };
 
 const WeatherApp = () => {
-  const isDarkMode = useColorScheme() === "dark";
   const [location, setLocation] = useState<LocationType>(null);
   const [weatherData, setWeatherData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cityName, setCityName] = useState("Vị trí hiện tại");
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
-  // Fetch data
   const fetchWeatherData = useCallback(async (lat: number, lon: number) => {
     try {
       setError(null);
@@ -66,7 +64,6 @@ const WeatherApp = () => {
     }
   }, []);
 
-  // Get location
   const getLocation = useCallback(() => {
     setLoading(true);
     Geolocation.getCurrentPosition(
@@ -98,12 +95,16 @@ const WeatherApp = () => {
       text: WMO_MAP[weatherData.current_weather.weathercode]?.text ?? "Khác",
       icon: WMO_MAP[weatherData.current_weather.weathercode]?.icon ?? "🌈",
     };
-    const hourly: HourlyItem[] = weatherData.hourly.time.slice(0, 12).map((t: string, i: number) => ({
-      time: new Date(t).getHours() + "h",
-      temp: Math.round(weatherData.hourly.temperature_2m[i]),
-      code: weatherData.hourly.weather_code[i],
-      isDay: weatherData.hourly.is_day[i] === 1,
-    }));
+    const hourly: HourlyItem[] = weatherData.hourly.time.map((t: string, i: number) => {
+      const date = new Date(t);
+      return {
+        date: date.toISOString().split("T")[0],
+        time: date.getHours() + "h",
+        temp: Math.round(weatherData.hourly.temperature_2m[i]),
+        code: weatherData.hourly.weather_code[i],
+        isDay: weatherData.hourly.is_day[i] === 1,
+      };
+    });
     const daily: DailyItem[] = weatherData.daily.time.map((t: string, i: number) => ({
       date: t,
       maxTemp: Math.round(weatherData.daily.temperature_2m_max[i]),
@@ -139,6 +140,9 @@ const WeatherApp = () => {
     );
   }
 
+  // lọc giờ trong ngày đã chọn
+  const selectedHours = processed.hourly.filter(h => h.date === selectedDay);
+
   return (
     <LinearGradient
       colors={processed.current.isDay ? ["#4facfe", "#00f2fe"] : ["#141E30", "#243B55"]}
@@ -168,25 +172,11 @@ const WeatherApp = () => {
           </View>
         </View>
 
-        {/* Hourly Forecast */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Dự báo 12 giờ tới</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {processed.hourly.map((h, i) => (
-              <View key={i} style={styles.hourItem}>
-                <Text style={styles.hourText}>{h.time}</Text>
-                <Text style={styles.hourIcon}>{WMO_MAP[h.code]?.icon || "🌈"}</Text>
-                <Text style={styles.hourTemp}>{h.temp}°</Text>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-
         {/* Daily Forecast */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Dự báo 7 ngày</Text>
           {processed.daily.map((d, i) => (
-            <View key={i} style={styles.dailyItem}>
+            <TouchableOpacity key={i} style={styles.dailyItem} onPress={() => setSelectedDay(d.date)}>
               <Text style={{ flex: 1 }}>
                 {new Date(d.date).toLocaleDateString("vi-VN", { weekday: "short" })}
               </Text>
@@ -196,10 +186,36 @@ const WeatherApp = () => {
               <Text style={{ flex: 1, textAlign: "right" }}>
                 {d.minTemp}° / {d.maxTemp}°
               </Text>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
       </ScrollView>
+
+      {/* Modal chi tiết ngày */}
+      <Modal visible={!!selectedDay} animationType="slide" transparent>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <TouchableOpacity
+              style={{ alignSelf: "flex-end", marginBottom: 8 }}
+              onPress={() => setSelectedDay(null)}
+            >
+              <X size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={{ color: "#fff", fontSize: 18, fontWeight: "bold", marginBottom: 12 }}>
+              Dự báo chi tiết {selectedDay}
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {selectedHours.map((h, i) => (
+                <View key={i} style={styles.hourItem}>
+                  <Text style={styles.hourText}>{h.time}</Text>
+                  <Text style={styles.hourIcon}>{WMO_MAP[h.code]?.icon || "🌈"}</Text>
+                  <Text style={styles.hourTemp}>{h.temp}°</Text>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </LinearGradient>
   );
 };
@@ -237,6 +253,20 @@ const styles = StyleSheet.create({
   },
   infoItem: { flexDirection: "row", alignItems: "center", marginHorizontal: 8 },
   infoText: { color: "#fff", marginLeft: 4 },
+
+  modalContainer: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 16,
+  },
+  modalContent: {
+    backgroundColor: "#1e293b",
+    borderRadius: 16,
+    padding: 16,
+    width: "90%",
+  },
 });
 
 export default WeatherApp;
