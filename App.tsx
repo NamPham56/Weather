@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
   View,
@@ -8,11 +9,20 @@ import {
   StyleSheet,
   StatusBar,
   RefreshControl,
-  Modal,
+  ImageBackground,
+  Platform,
 } from "react-native";
 import Geolocation from "@react-native-community/geolocation";
-import { RefreshCw, Wind, Droplets, X } from "lucide-react-native";
+import Geocoder from "react-native-geocoding";
+import Modal from "react-native-modal";
 import LinearGradient from "react-native-linear-gradient";
+import { MotiView, MotiText } from "moti";
+import LottieView from "lottie-react-native";
+import { Card, List, Button, Provider as PaperProvider, DefaultTheme } from "react-native-paper";
+import { RefreshCw, Wind, Droplets, X } from "lucide-react-native";
+
+// Initialize Geocoder (replace with your Google API key if you use it)
+// Geocoder.init("YOUR_GOOGLE_API_KEY");
 
 type LocationType = { latitude: number; longitude: number } | null;
 type HourlyItem = { time: string; temp: number; code: number; isDay: boolean; date: string };
@@ -35,7 +45,19 @@ const WMO_MAP: Record<number, { text: string; icon: string }> = {
   95: { text: "Giông", icon: "⛈️" },
 };
 
-const WeatherApp = () => {
+const theme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    primary: "#4DA1FF",
+    accent: "#00f2fe",
+    background: "#0f1724",
+    surface: "#1e293b",
+    text: "#ffffff",
+  },
+};
+
+const WeatherAppEnhanced: React.FC = () => {
   const [location, setLocation] = useState<LocationType>(null);
   const [weatherData, setWeatherData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -53,8 +75,18 @@ const WeatherApp = () => {
       const data = await res.json();
       setWeatherData(data);
 
-      const parts = data.timezone.split("/");
-      setCityName(parts[parts.length - 1].replace("_", " "));
+      // Optional: reverse geocoding (uncomment if Geocoder is initialized and key provided)
+      // try {
+      //   const geo = await Geocoder.from(lat, lon);
+      //   const comp = geo.results?.[0]?.address_components || [];
+      //   const city = comp.find((c:any) => c.types.includes("locality"))?.long_name;
+      //   if (city) setCityName(city);
+      // } catch (e) {
+      //   // fallback to timezone name
+      // }
+
+      const parts = data.timezone?.split("/") || [];
+      setCityName(parts[parts.length - 1]?.replace("_", " ") || "Vị trí hiện tại");
     } catch (err) {
       console.log(err);
       setError("Lỗi khi tải dữ liệu.");
@@ -117,130 +149,177 @@ const WeatherApp = () => {
   const onRefresh = () => {
     setRefreshing(true);
     if (location) fetchWeatherData(location.latitude, location.longitude);
+    else getLocation();
   };
+
+  // selected hours for modal
+  const selectedHours = processed.hourly.filter(h => h.date === selectedDay);
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#4DA1FF" />
-        <Text style={{ color: "#fff", marginTop: 8 }}>Đang tải dữ liệu...</Text>
-      </View>
+      <PaperProvider theme={theme}>
+        <LinearGradient colors={["#0f1724", "#243B55"]} style={{ flex: 1 }}>
+          <StatusBar barStyle="light-content" />
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={{ color: "#fff", marginTop: 8 }}>Đang tải dữ liệu...</Text>
+            {/* subtle Lottie */}
+            <View style={{ width: 140, height: 140, marginTop: 16 }}>
+              <LottieView
+                source={require("./assets/loader.json")} // add a loader.json in assets (optional)
+                autoPlay
+                loop
+              />
+            </View>
+          </View>
+        </LinearGradient>
+      </PaperProvider>
     );
   }
 
   if (error || !processed.current) {
     return (
-      <View style={styles.center}>
-        <Text style={{ color: "#fff", marginBottom: 12 }}>{error || "Không có dữ liệu"}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={getLocation}>
-          <RefreshCw size={20} color="#fff" />
-          <Text style={{ color: "#fff", marginLeft: 6 }}>Thử lại</Text>
-        </TouchableOpacity>
-      </View>
+      <PaperProvider theme={theme}>
+        <LinearGradient colors={["#141E30", "#243B55"]} style={{ flex: 1 }}>
+          <StatusBar barStyle="light-content" />
+          <View style={styles.center}>
+            <Text style={{ color: "#fff", marginBottom: 12 }}>{error || "Không có dữ liệu"}</Text>
+            <Button mode="contained" onPress={getLocation} icon={() => <RefreshCw size={18} color="#fff" />}>
+              Thử lại
+            </Button>
+          </View>
+        </LinearGradient>
+      </PaperProvider>
     );
   }
 
-  // lọc giờ trong ngày đã chọn
-  const selectedHours = processed.hourly.filter(h => h.date === selectedDay);
+  // dynamic background image based on day/night (add assets day.jpg/night.jpg)
+  const bgImage = processed.current.isDay ? require("./assets/day.jpg") : require("./assets/night.jpg");
 
   return (
-    <LinearGradient
-      colors={processed.current.isDay ? ["#4facfe", "#00f2fe"] : ["#141E30", "#243B55"]}
-      style={{ flex: 1 }}
-    >
-      <StatusBar barStyle="light-content" />
-      <ScrollView
-        contentContainerStyle={{ padding: 16 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
-        {/* Current Weather */}
-        <View style={{ alignItems: "center", marginBottom: 20 }}>
-          <Text style={styles.city}>{cityName}</Text>
-          <Text style={styles.temp}>{processed.current.temp}°C</Text>
-          <Text style={styles.condition}>
-            {processed.current.icon} {processed.current.text}
-          </Text>
-          <View style={{ flexDirection: "row", marginTop: 12 }}>
-            <View style={styles.infoItem}>
-              <Wind size={18} color="#fff" />
-              <Text style={styles.infoText}>{processed.current.wind} km/h</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Droplets size={18} color="#fff" />
-              <Text style={styles.infoText}>{weatherData.hourly.relativehumidity_2m[0]}%</Text>
-            </View>
-          </View>
-        </View>
+    <PaperProvider theme={theme}>
+      <ImageBackground source={bgImage} style={{ flex: 1 }} resizeMode="cover">
+        <LinearGradient
+          colors={processed.current.isDay ? ["rgba(79,172,254,0.85)", "rgba(0,242,254,0.6)"] : ["rgba(20,30,48,0.9)", "rgba(36,59,85,0.9)"]}
+          style={{ flex: 1 }}
+        >
+          <StatusBar barStyle="light-content" />
 
-        {/* Daily Forecast */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Dự báo 7 ngày</Text>
-          {processed.daily.map((d, i) => (
-            <TouchableOpacity key={i} style={styles.dailyItem} onPress={() => setSelectedDay(d.date)}>
-              <Text style={{ flex: 1 }}>
-                {new Date(d.date).toLocaleDateString("vi-VN", { weekday: "short" })}
-              </Text>
-              <Text style={{ flex: 1, textAlign: "center" }}>
-                {WMO_MAP[d.code]?.icon || "🌈"}
-              </Text>
-              <Text style={{ flex: 1, textAlign: "right" }}>
-                {d.minTemp}° / {d.maxTemp}°
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </ScrollView>
+          <ScrollView
+            contentContainerStyle={{ padding: 16 }}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />}
+          >
+            {/* Header: City + Current */}
+            <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }} transition={{ delay: 100 }}>
+              <View style={{ alignItems: "center", marginBottom: 20 }}>
+                <Text style={styles.city}>{cityName}</Text>
+                <MotiText from={{ scale: 0.85 }} animate={{ scale: 1 }} transition={{ delay: 200 }} style={styles.temp}>
+                  {processed.current.temp}°C
+                </MotiText>
+                <Text style={styles.condition}>{processed.current.icon} {processed.current.text}</Text>
 
-      {/* Modal chi tiết ngày */}
-      <Modal visible={!!selectedDay} animationType="slide" transparent>
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <TouchableOpacity
-              style={{ alignSelf: "flex-end", marginBottom: 8 }}
-              onPress={() => setSelectedDay(null)}
-            >
-              <X size={24} color="#fff" />
-            </TouchableOpacity>
-            <Text style={{ color: "#fff", fontSize: 18, fontWeight: "bold", marginBottom: 12 }}>
-              Dự báo chi tiết {selectedDay}
-            </Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {selectedHours.map((h, i) => (
-                <View key={i} style={styles.hourItem}>
-                  <Text style={styles.hourText}>{h.time}</Text>
-                  <Text style={styles.hourIcon}>{WMO_MAP[h.code]?.icon || "🌈"}</Text>
-                  <Text style={styles.hourTemp}>{h.temp}°</Text>
+                <View style={{ flexDirection: "row", marginTop: 12 }}>
+                  <View style={styles.infoItem}>
+                    <Wind size={18} color="#fff" />
+                    <Text style={styles.infoText}>{processed.current.wind} km/h</Text>
+                  </View>
+                  <View style={styles.infoItem}>
+                    <Droplets size={18} color="#fff" />
+                    <Text style={styles.infoText}>{weatherData.hourly.relativehumidity_2m[0]}%</Text>
+                  </View>
                 </View>
+              </View>
+            </MotiView>
+
+            {/* Cards: Daily forecast */}
+            <Card style={styles.card}>
+              <Card.Title title="Dự báo 7 ngày" titleStyle={{ color: "#fff" }} />
+              {processed.daily.map((d, i) => (
+                <TouchableOpacity key={i} onPress={() => setSelectedDay(d.date)}>
+                  <List.Item
+                    title={`${new Date(d.date).toLocaleDateString("vi-VN", { weekday: "short" })}`}
+                    description={`${d.minTemp}° / ${d.maxTemp}°`}
+                    left={() => <Text style={{ fontSize: 20 }}>{WMO_MAP[d.code]?.icon || "🌈"}</Text>}
+                    right={() => <Text style={{ color: "#fff", alignSelf: "center" }}>{d.maxTemp}°</Text>}
+                    titleStyle={{ color: "#fff" }}
+                    descriptionStyle={{ color: "#ddd" }}
+                  />
+                </TouchableOpacity>
               ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-    </LinearGradient>
+            </Card>
+
+            {/* Hourly strip: show 12 next hours */}
+            <View style={[styles.card, { marginTop: 12 }]}>
+              <Text style={styles.cardTitle}>Giờ tiếp theo</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingVertical: 8 }}>
+                {processed.hourly.slice(0, 24).map((h, i) => (
+                  <MotiView key={i} from={{ opacity: 0, translateY: 8 }} animate={{ opacity: 1, translateY: 0 }} style={styles.hourItem} transition={{ delay: i * 20 }}>
+                    <Text style={styles.hourText}>{h.time}</Text>
+                    <Text style={styles.hourIcon}>{WMO_MAP[h.code]?.icon || "🌈"}</Text>
+                    <Text style={styles.hourTemp}>{h.temp}°</Text>
+                  </MotiView>
+                ))}
+              </ScrollView>
+            </View>
+
+          </ScrollView>
+
+          {/* Modal: detailed day */}
+          <Modal isVisible={!!selectedDay} onBackdropPress={() => setSelectedDay(null)} style={{ margin: 0, justifyContent: 'flex-end' }}>
+            <View style={styles.modalContent}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold' }}>Dự báo chi tiết {selectedDay}</Text>
+                <TouchableOpacity onPress={() => setSelectedDay(null)}>
+                  <X size={22} color="#fff" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
+                {selectedHours.length === 0 ? (
+                  <Text style={{ color: '#fff' }}>Không có dữ liệu giờ</Text>
+                ) : (
+                  selectedHours.map((h, i) => (
+                    <View key={i} style={styles.hourItemLarge}>
+                      <Text style={styles.hourText}>{h.time}</Text>
+                      <Text style={styles.hourIcon}>{WMO_MAP[h.code]?.icon || '🌈'}</Text>
+                      <Text style={styles.hourTemp}>{h.temp}°</Text>
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+
+            </View>
+          </Modal>
+
+        </LinearGradient>
+      </ImageBackground>
+    </PaperProvider>
   );
 };
 
 const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: "#101820", justifyContent: "center", alignItems: "center" },
-  city: { fontSize: 28, fontWeight: "700", color: "#fff" },
-  temp: { fontSize: 72, fontWeight: "bold", color: "#FFD700" },
-  condition: { fontSize: 20, color: "#fff", marginTop: 4 },
+  city: { fontSize: 24, fontWeight: "700", color: "#fff" },
+  temp: { fontSize: 56, fontWeight: "700", color: "#FFD700", textAlign: 'center' },
+  condition: { fontSize: 16, color: "#fff", marginTop: 4 },
   card: {
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 16,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 12,
+    padding: 8,
+    marginBottom: 8,
+    overflow: 'hidden'
   },
   cardTitle: { fontSize: 16, fontWeight: "600", marginBottom: 8, color: "#fff" },
-  hourItem: { alignItems: "center", marginRight: 16 },
+  hourItem: { alignItems: "center", marginRight: 16, width: 64 },
+  hourItemLarge: { alignItems: "center", marginRight: 16, width: 88 },
   hourText: { color: "#fff", fontSize: 14, marginBottom: 4 },
-  hourTemp: { color: "#fff", fontSize: 16, fontWeight: "bold" },
-  hourIcon: { fontSize: 20, marginVertical: 4 },
+  hourTemp: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  hourIcon: { fontSize: 22, marginVertical: 4 },
   dailyItem: {
     flexDirection: "row",
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.2)",
+    borderBottomColor: "rgba(255,255,255,0.08)",
   },
   retryButton: {
     flexDirection: "row",
@@ -252,21 +331,15 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   infoItem: { flexDirection: "row", alignItems: "center", marginHorizontal: 8 },
-  infoText: { color: "#fff", marginLeft: 4 },
+  infoText: { color: "#fff", marginLeft: 8 },
 
-  modalContainer: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 16,
-  },
   modalContent: {
-    backgroundColor: "#1e293b",
-    borderRadius: 16,
+    backgroundColor: "#0b1220",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     padding: 16,
-    width: "90%",
+    minHeight: 240,
   },
 });
 
-export default WeatherApp;
+export default WeatherAppEnhanced;
